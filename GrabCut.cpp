@@ -15,7 +15,7 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
     cout<<"maskMat is the modified one?"<<endl;
     assignGMMComponentsToFGPixels(fgModelMat, maskMat, imgMat);
     cout<<"fgModelMat is the modified one?"<<endl;
-    learnGMMParams(fgModelMat);
+    learnGMMParams(fgModelMat, imgMat);
 //一.参数解释：
 	//输入：
 	 //cv::InputArray _img,     :输入的color图像(类型-cv:Mat)
@@ -54,7 +54,7 @@ void GrabCut2D::initializeMaskAlphaGMM(Mat &_mask, const Rect &rect, const Mat &
     Mat fgLabels(rect.height*rect.width, 1, CV_32SC1);
     gaussFG.estimateParas(fgSamples, noArray(), fgLabels);
     gaussFG.testEstimateParas();
-    gaussFG.constructFGModel(fgModel);
+    gaussFG.constructFGModelFromEM(fgModel);
 
     // Initialize BG GMM
     auto bgSamples = getBgSamples(_img, rect);
@@ -124,7 +124,7 @@ void GrabCut2D::assignGMMComponentsToFGPixels(const Mat &fgModel, const Mat &mas
 }
 
 void GrabCut2D::assignGMMComponentsToFGPixel(Point2i pixel, const Mat &fgModel, const Mat &image) {
-    cout<<"#GrabCut2D::assignGMMComponentsToFGPixel# image depth? channel?"<<endl;
+    //cout<<"#GrabCut2D::assignGMMComponentsToFGPixel# image depth? channel?"<<endl;
     auto Ds = map<int, double>();
     auto amountGMMComponents = fgModel.cols;
     for (int i = 0; i < amountGMMComponents; ++i) {
@@ -163,15 +163,14 @@ void GrabCut2D::testAssignGMMComponentsToFGPixels() {
     }
 }
 
-void GrabCut2D::learnGMMParams(Mat &model) {
-    pixelsInFgGaussComps;
-    gaussFG;
+void GrabCut2D::learnGMMParams(Mat &model, const Mat& image) {
+    cout<<"GrabCut2D::learnGMMParams"<<endl;
+    gaussFG.estimateParas(pixelsInFgGaussComps, image);
+    gaussFG.constructFGModel(model);
     //5 comps, each has pi, mean, cov
 }
 
 GrabCut2D::~GrabCut2D(void)
 {
 }
-
-
 

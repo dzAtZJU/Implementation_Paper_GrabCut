@@ -33,7 +33,7 @@ private:
     void generateFGPixelsVector(vector<Point2i>& fgPixels, const Mat& mask);
     void assignGMMComponentsToFGPixel(Point2i pixel, const Mat &fgModel, const Mat& image);
     void testAssignGMMComponentsToFGPixels();
-    void learnGMMParams(Mat& model);
+    void learnGMMParams(Mat& model, const Mat& image);
 
 private:
     Mat getBgSamples(const Mat& _img, const Rect& rect);

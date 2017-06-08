@@ -9,6 +9,7 @@
 class Hiddens {
     // Mat: row * col
     //Image: Origin at Upper Left, y to Right, x to down
+    //Image ele type: Vec3b
 };
 
 

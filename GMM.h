@@ -84,7 +84,7 @@ private:
             auto color = valueMat.at<Vec3b>(sample);
             Mat colorMat(3,1,CV_64FC1);
             for(auto v:color.val){
-                colorMat.push_back(v);
+                colorMat.push_back(double(v));
             }
             cov +=  colorMat*colorMat.t();
         }

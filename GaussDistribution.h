@@ -26,7 +26,6 @@ public:
         _pi = gmmComponent.at<double>(0,0);
         _mu = gmmComponent(Range(1,4), Range::all()).clone();
         _cov = gmmComponent(Range(4,13), Range::all()).clone().reshape(1, 3);
-        testGaussDistributionGMMComponent();
     }
     /// @param fgModel 13*n
     void constructFGModel(Mat& fgModel) {
@@ -96,16 +95,6 @@ public:
         auto mean = em.get<Mat>("means");
         auto cov = em.get<vector<Mat>>("covs");
         ;
-    }
-
-    void testGaussDistributionGMMComponent() {
-        cout<<"#GaussDistribution::testGaussDistributionGMMComponent#"<<endl;
-        cout<<"pi:"<<_pi<<endl;
-        double* mu = _mu.val;
-        MyUtility::printArray(mu, 3);
-        double* cov = _cov.val;
-        MyUtility::printArray(cov, 9);
-        cout<<endl;
     }
 
 private:
