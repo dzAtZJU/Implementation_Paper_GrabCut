@@ -11,6 +11,23 @@
 using namespace cv;
 using namespace std;
 
+/*
+class MatAccessor {
+public:
+    MatAccessor();
+    MatAccessor(Mat& mat);
+    /// @attention Conform to OpenCV Image Coordinate
+    int nPixels();
+    int rows();
+    int cols();
+    vector<int> neighbors_Of(int pixelIndex);
+    int indexOfPixel(Point2i p);
+    Point2i coordOfPixel(int pixelIndex);
+private:
+    Mat* mat = nullptr;
+};
+ */
+
 class ImageAccessor {
 public:
     ImageAccessor();

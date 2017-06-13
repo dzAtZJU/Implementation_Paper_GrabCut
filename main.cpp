@@ -4,13 +4,13 @@
 using namespace cv;
 using namespace std;
 
+/*
 int main() {
     GrabCut2D grabcut;
     grabcut.test();
 }
-
-/*
- * #include <iostream>
+*/
+#include <iostream>
 #include "GCApplication.h"
 static void help()
 {

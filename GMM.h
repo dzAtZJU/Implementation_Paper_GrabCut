@@ -26,6 +26,7 @@ private:
     vector<double> pis;
 
 public:
+    int nComps() { return GMM::NClusters; }
     double minusLogProbDensConstDeled_at_Comp_Sample(int k_comp, Matx31d sample) {
         auto result = GaussDistribution::minusLogProbDensConstDeled(sample, means[k_comp], covs[k_comp]);
         result += -log(pis[k_comp]);
@@ -49,11 +50,34 @@ public:
         auto r = false;
         try {
             r = em.train(samples, noArray(), labels);
+            synWithParas();
             return r;
         }
         catch (Exception& e) {
             cout<<e.what()<<endl;
             return false;
+        }
+    }
+
+    void synWithParas() {
+        auto em_weights = em.get<Mat>("weights");
+        assert(em_weights.cols == NClusters);
+        auto em_means = em.get<Mat>("means");
+        assert((em_means.cols == 3) && (em_means.rows == 5));
+        auto em_covs = em.get<vector<Mat>>("covs");
+        assert(em_covs.size() == 5);
+
+        for (auto it = em_weights.begin<double>(); it != em_weights.end<double>(); ++it) {
+            pis.push_back(*it);
+        }
+
+        for (int i = 0; i < nComps(); ++i) {
+            Matx31d mean = em_means(Range(i, i + 1), Range::all()).clone();
+            means.push_back(mean);
+        }
+
+        for (int i = 0; i < nComps(); ++i) {
+            covs.push_back(em_covs[i].clone());
         }
     }
 
@@ -112,7 +136,7 @@ private:
 
         //pi
         auto itPi = pis.begin() + i;
-        auto pi = samples.size()/nAllSamples;
+        double pi = 1.0*samples.size()/nAllSamples;
         pis.insert(itPi, pi);
     }
 
