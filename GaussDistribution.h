@@ -50,7 +50,7 @@ public:
         return result;
     }
 
-    double minusLogProbDensConstDeled(Matx31d z, Matx31d mu, Matx33d cov) {
+    static double minusLogProbDensConstDeled(Matx31d z, Matx31d mu, Matx33d cov) {
 
         auto covDet = determinant(cov);
         auto covInv  = Mat(cov.inv());

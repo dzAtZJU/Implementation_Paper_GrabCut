@@ -9,11 +9,29 @@
 #include <ml.h>
 #include <vector>
 #include "MyUtility.h"
+#include "GaussDistribution.h"
+
 using namespace cv;
 using namespace std;
 
 class GMM {
+private:
+    static constexpr int NClusters = 5;
+    /// @weights 1*5
+    /// @mean 5*3
+    /// @cov vector 5, element 3*3
+    EM em = EM(NClusters, EM::COV_MAT_GENERIC, TermCriteria(CV_TERMCRIT_ITER, 1, 0.1));
+    vector<Matx33d> covs = vector<Matx33d>(3, Matx33d());
+    vector<Matx31d> means = vector<Matx31d>(3, Matx31d());
+    vector<double> pis;
+
 public:
+    double minusLogProbDensConstDeled_at_Comp_Sample(int k_comp, Matx31d sample) {
+        auto result = GaussDistribution::minusLogProbDensConstDeled(sample, means[k_comp], covs[k_comp]);
+        result += -log(pis[k_comp]);
+        return result;
+    }
+
     void estimateParas(vector<vector<Point2i>>& samplesVec, const Mat& valueMat) {
         int nAllSamples = 0;
         for(auto samples:samplesVec) {
@@ -97,16 +115,6 @@ private:
         auto pi = samples.size()/nAllSamples;
         pis.insert(itPi, pi);
     }
-
-private:
-    static constexpr int NClusters = 5;
-    /// @weights 1*5
-    /// @mean 5*3
-    /// @cov vector 5, element 3*3
-    EM em = EM(NClusters, EM::COV_MAT_GENERIC, TermCriteria(CV_TERMCRIT_ITER, 1, 0.1));
-    vector<Matx33d> covs = vector<Matx33d>(3, Matx33d());
-    vector<Matx31d> means = vector<Matx31d>(3, Matx31d());
-    vector<double> pis;
 
 public:
     //Test
