@@ -29,78 +29,53 @@ using MaskType = char;
 
 class GrabCut2D
 {
-public:// User
+public://Grab Cut Interface
     void GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Rect rect,
                   cv::InputOutputArray _bgdModel,cv::InputOutputArray _fgdModel,
                   int iterCount, int mode );
-    ~GrabCut2D(void);
+    ~GrabCut2D(void){}
 
-private:// Constructure
-    void setInternalDataStructure(Mat _img, Mat _mask, Rect _rect);
+private://Grab CutAlgorithm Core
+    void initializeGmm();
+        Mat getBgSamples(const Rect& rect);
+        Mat getFgSamples(const Rect &rect);
 
-private:// Implementer
-    void initializeMaskGmm(Mat &fgModel, Mat &bgModel);
-    void addFgPixelsToFgGmmComponents();
-    void addBgPixelsToFgGmmComponents();
+    void reAssignPixelsToGmmComponents();
+        void reAssignPixelToGmmComponentForArea(Point2i pixel, AreaMask area);
+    
     void learnGMMParams();
+
+    void minCut();
     void constructGraph();
-
-private:// Data Factory
-    void reAssignPixelToGmmComponent(Point2i pixel, AreaMask area);
-    void addBgPixelToBgGmmComponent(Point2i pixel);
-    void addFgPixelToFgGmmComponent(Point2i pixel);
-
-    void generateBGPixelsVector(vector<Point2i>& bgPixels);
-    void generateFGPixelsVector(vector<Point2i>& fgPixels);
-    void addPixelsInAnAreaToVector(vector<Point2i> &pixels, AreaMask area);
-
-private:// Paper: BOYKOV, Y., AND JOLLY, M.-P. Interactive graph cuts for optimal boundary and region segmentation of objects in n-d images. In ICCV, 2001, 105–112.
-    int nPixels();
-    AreaMask markOfPixel(Point2i pixel);
-    AreaMask markOfEle(int row, int col);
-    int k_GMMCompOfPixel(int i);
-    double edgeWeight_Pixel_Source(int pixelIndex);
-    double computeK();
-    double R(Point2i pixel, AreaMask mask);
-    double lambda();
-    double edgeWeight_Pixel_Terminal(int pixelIndex);
-    vector<int> neighborsOfPixel(int pixelIndex);
+        double edgeWeight_Pixel_Source(int pixelIndex);
+        double edgeWeight_Pixel_Terminal(int pixelIndex);
+            double lambda();
+            double computeK();
+            double D(AreaMask alpha, int k_GMMComp, Vec3b z_color);
+            double B(Point2i p, Point2i neighborQ);
+                double gama();
+                double Beta();
+            double R(Point2i pixel, AreaMask mask);
+                int gmmComponentIfPixelIsInArea(Point2i pixel, AreaMask area);
     double edgeWeight_p_neighborQ(int p, int neighborQ);
-    double B(Point2i p, Point2i neighborQ);
-    int comp_of_pixel(int pixelIndex);
-    int gmmComponentForPixel(Point2i pixel, AreaMask area);
-private:// Paper
-    double D(AreaMask alpha, int k_GMMComp, Vec3b z_color);
-    double Beta();
-    Mat getBgSamples(const Rect& rect);
-    Mat getFgSamples(const Rect &rect);
+
+private: //Data Structure
+    Mat image;
+        ImageAccessor imageAccessor;
+    Rect rectTu;
+    void copy_Image_and_Rect(Mat _img, Rect _rect);
+    Mat mask;
+        Mat TuMaskMat() { return mask(rectTu); }
+        void receiveMask(const Mat &_mask);
+        void returnMask(cv::InputOutputArray _mask);
+        void updateMaskFromMinCut();
+        AreaMask markOfPixel(Point2i pixel);
+    vector<int> k;
     GMM gmmFG;
     GMM gmmBG;
-    void generatePixelsInAreaByGaussComps(vector<vector<Point2i>>& v, AreaMask area);
-    //vector<vector<Point2i>> pixelsInFgGaussComps = vector<vector<Point2i>>{5,vector<Point2i>()};
-    //vector<vector<Point2i>> pixelsInBgGaussComps= vector<vector<Point2i>>{5,vector<Point2i>()};
-    ImageGraph* graph = nullptr;
-    void minCut();
-    void updateMask();
-    void reassignPixelsInTuToGmmComponents();
+    void extraDataStructureForConvinientUse_Vectors_PixelsInAreaByGaussComps(vector<vector<Point2i>> &v, AreaMask area);
     double K = 0;
-    void reAssignPixelsToGmmComponents();
-private: //Data
-    Mat image;//!not set; Must synchronized; Owner is outside!
-    Mat mask;//!not set; Must synchronized; Owner is outside!
-    Rect rectTu;
-    vector<int> k;
-private: //Data Accessor
-    ImageAccessor imageAccessor;//!not set; Must synchronized;!
-    Mat TuMaskMat() { return mask(rectTu); }
-    void reassignPixelsInBGToComponents();
-    int nPixelsInRect();
-    void returnExternalDataStructure(cv::InputOutputArray _mask);
-private: //test
-    void test();
-    void testInitializeMaskGmm();
-    void testReAssignPixelsInBGToComponents();
-    void testReAssignPixelsInTuToGmmComponents();
-    void testMinCut();
+    double beta = 0;
+    ImageGraph* graph = nullptr;
 };
 
