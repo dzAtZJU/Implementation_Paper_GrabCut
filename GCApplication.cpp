@@ -42,6 +42,8 @@ void GCApplication::showImage() const
 		image->copyTo( res, binMask );  //show the GrabCuted image
 	}
 
+    cout<<"res rows: "<<res.rows<<" cols: "<<res.cols<<endl;
+    imwrite("/Users/zhouweiran/Desktop/cutted.png", res);
 	vector<Point>::const_iterator it;
 	//Using four different colors show the point which have been selected
 	for( it = bgdPxls.begin(); it != bgdPxls.end(); ++it )  

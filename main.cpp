@@ -4,13 +4,6 @@
 using namespace cv;
 using namespace std;
 
-/*
-int main() {
-    GrabCut2D grabcut;
-    grabcut.test();
-}
-*/
-#include <iostream>
 #include "GCApplication.h"
 static void help()
 {
@@ -41,11 +34,10 @@ static void on_mouse( int event, int x, int y, int flags, void* param )
 	gcapp.mouseClick( event, x, y, flags, param );
 }
 
-
 int main()
 {
 
-	string filename = "F:\\Data\\Ls_Data\\00\\0050.bmp";
+	string filename = "/Users/zhouweiran/Desktop/image.png";
 	Mat image = imread( filename, 1 );
 	if( image.empty() )
 	{
@@ -93,7 +85,11 @@ int main()
 exit_main:
 	cvDestroyWindow( winName.c_str() );
 	return 0;
+}
 
-	return 0;
+/*
+int main() {
+    char a = 1;
+    cout<<"a: "<<int(a);
 }
  */

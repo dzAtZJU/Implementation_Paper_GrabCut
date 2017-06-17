@@ -21,8 +21,8 @@ private:
     /// @mean 5*3
     /// @cov vector 5, element 3*3
     EM em = EM(NClusters, EM::COV_MAT_GENERIC, TermCriteria(CV_TERMCRIT_ITER, 1, 0.1));
-    vector<Matx33d> covs = vector<Matx33d>(3, Matx33d());
-    vector<Matx31d> means = vector<Matx31d>(3, Matx31d());
+    vector<Matx33d> covs;
+    vector<Matx31d> means;
     vector<double> pis;
 
 public:
@@ -41,20 +41,21 @@ public:
         for(int i=0; i<samplesVec.size(); i++) {
             estimateParasForComponent(i, samplesVec[i], valueMat, nAllSamples);
         }
-        testEstimateParasSamplesVec();
     }
 
     /// @param labels CV_32SC1
     bool estimateParas(InputArray samples, OutputArray logLikelihoods=noArray(), OutputArray labels=noArray()) {
-        cout<<"#GaussDistribution::estimateParas# Positive Definite Covariance; labels type CV_32SC1"<<endl;
+        cout<<"#GMM::estimateParas# Positive Definite Covariance; labels type CV_32SC1"<<endl;
         auto r = false;
         try {
             r = em.train(samples, noArray(), labels);
             synWithParas();
+            cout<<"#GMM::estimateParas# End"<<endl;
             return r;
         }
         catch (Exception& e) {
             cout<<e.what()<<endl;
+            cout<<"#GMM::estimateParas# End"<<endl;
             return false;
         }
     }
@@ -72,8 +73,10 @@ public:
         }
 
         for (int i = 0; i < nComps(); ++i) {
-            Matx31d mean = em_means(Range(i, i + 1), Range::all()).clone();
-            means.push_back(mean);
+            auto mean = em_means(Range(i, i + 1), Range::all());
+            Mat mean_t;
+            mean_t = mean.t();
+            means.push_back(mean_t.clone());
         }
 
         for (int i = 0; i < nComps(); ++i) {
@@ -82,19 +85,20 @@ public:
     }
 
     /// @attention Only use after estimateParas
-    /// @param fgModel 13*n
-    void constructFGModelFromEM(Mat &fgModel) {
-        fgModel.create(13, NClusters, CV_64F);
-        auto weights = em.get<Mat>("weights"); assert(weights.cols==NClusters);
+    /// @param model 13*n
+    void constructModelFromEM(Mat &model) {
+        model.create(13, NClusters, CV_64F);
+        auto weights = em.get<Mat>("weights");
+        assert(weights.cols==NClusters);
         auto means = em.get<Mat>("means"); assert((means.cols==3) && (means.rows==5));
         auto covs = em.get<vector<Mat>>("covs"); assert(covs.size()==5);
-        weights.copyTo(fgModel(Range(0,1),Range::all()));
+        weights.copyTo(model(Range(0,1),Range::all()));
         Mat mean3by5;
         mean3by5 = means.t();
-        mean3by5.copyTo(fgModel(Range(1,4),Range::all()));
+        mean3by5.copyTo(model(Range(1,4),Range::all()));
         for(int i=0; i<NClusters; i++) {
             auto cov = covs[i];
-            cov.reshape(1,9).copyTo(fgModel(Range(4,13),Range(i,i+1)));
+            cov.reshape(1,9).copyTo(model(Range(4,13),Range(i,i+1)));
         }
     }
 
@@ -124,7 +128,7 @@ private:
         cov = Scalar(0);
         for(auto sample:samples) {
             auto color = valueMat.at<Vec3b>(sample);
-            Mat colorMat(3,1,CV_64FC1);
+            Mat colorMat;
             for(auto v:color.val){
                 colorMat.push_back(double(v));
             }
@@ -142,15 +146,8 @@ private:
 
 public:
     //Test
-    void testEstimateParas() {
-        auto weights = em.get<Mat>("weights");
-        auto mean = em.get<Mat>("means");
-        auto cov = em.get<vector<Mat>>("covs");
-        ;
-    }
-
-    void testEstimateParasSamplesVec() {
-        cout<<"#GMM::testEstimateParasSamplesVec#"<<endl;
+    void testEstimatedParas() {
+        cout<<"#GMM::testEstimatedParas#"<<endl;
         for(int i=0; i<NClusters; i++) {
             cout<<"Component "<<i<<endl;
             cout << "pi:" << pis[i] << endl;
@@ -159,6 +156,7 @@ public:
             double *cov = covs[i].val;
             MyUtility::printArray(cov, 9);
         }
+        cout<<"#GMM::testEstimatedParas#"<<endl;
     }
 };
 

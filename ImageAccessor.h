@@ -20,13 +20,14 @@ public:
     int nPixels();
     int rows();
     int cols();
-    vector<int> neighbors_Of(int pixelIndex);
+    vector<int> neighborsInRect_Of(int pixelIndex);
     int indexOfPixel(Point2i p);
     Point2i coordOfPixel(int pixelIndex);
 private:
     Mat* mat = nullptr;
 };
  */
+using PixelType = cv::Vec3b;
 
 class ImageAccessor {
 public:
@@ -36,7 +37,7 @@ public:
     int nPixels();
     int rows();
     int cols();
-    vector<int> neighbors_Of(int pixelIndex);
+    vector<int> neighborsInRect_Of(int pixelIndex);
     Vec3b pixelValue_At(Point2i pixelPosition);
     double distanceInColorSpace_Square(Point2i p, Point2i q);
     int indexOfPixel(Point2i p);

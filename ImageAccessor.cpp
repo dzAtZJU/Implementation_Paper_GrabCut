@@ -3,7 +3,7 @@
 //
 
 #include "ImageAccessor.h"
-
+#include "MyUtilityOpenCV.h"
 ImageAccessor::ImageAccessor(Mat& image) : image(&image) {}
 
 Vec3b ImageAccessor::pixelValue_At(Point2i pixelPosition) {
@@ -32,9 +32,24 @@ int ImageAccessor::nPixels() {
     return rows()*cols();
 }
 
-vector<int> ImageAccessor::neighbors_Of(int pixelIndex) {
-    cout<<"#ImageAccessor::neighbors_Of# !Not Implement"<<endl;
-    return vector<int, allocator<int>>();
+vector<int> ImageAccessor::neighborsInRect_Of(int pixelIndex) {
+    vector<int> ns;
+
+    auto cood = coordOfPixel(pixelIndex);
+    auto centerRow = cood.y - 1, centerCol = cood.x - 1;
+    for (int i = 0; i < 3; ++i) {
+        auto row = centerRow + i;
+        for (int j = 0; j < 3; ++j) {
+            auto col = centerCol + j;
+            if((row >= 0) && (row < rows()) && (col >= 0) && (col < cols())) {
+                if((i!=1) || (j!=1)) {
+                    ns.push_back(indexOfPixel(point(row, col)));
+                }
+            }
+        }
+    }
+
+    return ns;
 }
 
 int ImageAccessor::indexOfPixel(Point2i p) {

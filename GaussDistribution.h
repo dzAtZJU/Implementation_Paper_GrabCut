@@ -68,6 +68,7 @@ public:
     }
 
     /// @param labels CV_32SC1
+    /*
     bool estimateParas(InputArray samples, OutputArray logLikelihoods=noArray(), OutputArray labels=noArray()) {
         cout<<"#GaussDistribution::estimateParas# Positive Definite Covariance; labels type CV_32SC1"<<endl;
         auto r = false;
@@ -80,6 +81,7 @@ public:
             return false;
         }
     }
+     */
 
     void testMinusLogProbDensConstDeled() {
         Matx33d cov = {1,1,1, 1,2,1, 1,1,2};

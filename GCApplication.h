@@ -30,6 +30,7 @@ static void getBinMask( const Mat& comMask, Mat& binMask )
 class GCApplication
 {
 public:
+    GCApplication(){};
 	enum{ NOT_SET = 0, IN_PROCESS = 1, SET = 2 };
 	static const int radius = 2;
 	static const int thickness = -1;
