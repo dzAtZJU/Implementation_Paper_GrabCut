@@ -1,107 +1,163 @@
 #include <highgui.h>
 #include "GrabCut.h"
 #include "maxflow-v3/graph.h"
-#include "MyUtilityOpenCV.h"
 
 using namespace std;
 using namespace cv;
-using namespace myUtilityOpenCV;
 
-//User
+//Alg
+//2.Init Mask: 用矩形框初始化Mask的Label值（确定背景：0， 确定前景：1，可能背景：2，可能前景：3）,矩形框以外设置为确定背景，矩形框以内设置为可能前景;
+//3.Init GMM: 定义并初始化GMM(其他模型完成分割也可得到基本分数，GMM完成会加分）
+//4.Sample Points:前背景颜色采样并进行聚类（建议用kmeans，其他聚类方法也可)
+//5.Learn GMM(根据聚类的样本更新每个GMM组件中的均值、协方差等参数）
+//4.Construct Graph（计算t-weight(数据项）和n-weight（平滑项））
+//7.Estimate Segmentation(调用maxFlow库进行分割)
+//8.Save Result输入结果（将结果mask输出，将mask中前景区域对应的彩色图像保存和显示在交互界面中）
 /// @attention
 void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Rect rect, cv::InputOutputArray _bgdModel,cv::InputOutputArray _fgModel, int iterCount, int mode )
 {
     std::cout<<"GrabCut2D::GrabCut"<<std::endl;
-    image = _img.getMat();
-    mask = _mask.getMat();
+    setInternalDataStructure(_img.getMat(), _mask.getMat(), rect);
     auto fgModelMat = _fgModel.getMat();
-
+    auto bgModelMat = _bgdModel.getMat();
     switch(mode) {
-        case GC_WITH_RECT: initializeMaskGmm(rect, fgModelMat); cout<<"maskMat is the modified one?"<<endl;
-        case GC_CUT: break;
-        case GC_WITH_MASK: break;
+        case GC_WITH_RECT:
+            initializeMaskGmm(fgModelMat, bgModelMat); cout << "maskMat is the modified one?" << endl;
+        case GC_CUT: {
+            reAssignPixelsToGmmComponents(); cout<<"fgModelMat is the modified one?"<<endl;
+            learnGMMParams();
+            minCut();
+            break;
+        }
+        case GC_WITH_MASK: assert(false); break;
         default: assert(false);
     }
-
-    addFgPixelsToFgGmmComponents(); cout<<"fgModelMat is the modified one?"<<endl;
-    learnGMMParams(fgModelMat);
-    minCut();
-//一.参数解释：
-	//输入：
-	 //cv::InputArray _img,     :输入的color图像(类型-cv:Mat)
-     //cv::Rect rect            :在图像上画的矩形框（类型-cv:Rect) 
-  	//int iterCount :           :每次分割的迭代次数（类型-int)
-
-
-	//中间变量
-	//cv::InputOutputArray _bgdModel ：   背景模型（推荐GMM)（类型-13*n（组件个数）个double类型的自定义数据结构，可以为cv:Mat，或者Vector/List/数组等）
-	//cv::InputOutputArray _fgdModel :    前景模型（推荐GMM) （类型-13*n（组件个数）个double类型的自定义数据结构，可以为cv:Mat，或者Vector/List/数组等）
-
-
-	//输出:
-	//cv::InputOutputArray _mask  : 输出的分割结果 (类型： cv::Mat)
-
-//二. 伪代码流程：
-	//1.Load Input Image: 加载输入颜色图像;
-	//2.Init Mask: 用矩形框初始化Mask的Label值（确定背景：0， 确定前景：1，可能背景：2，可能前景：3）,矩形框以外设置为确定背景，矩形框以内设置为可能前景;
-	//3.Init GMM: 定义并初始化GMM(其他模型完成分割也可得到基本分数，GMM完成会加分）
-	//4.Sample Points:前背景颜色采样并进行聚类（建议用kmeans，其他聚类方法也可)
-	//5.Learn GMM(根据聚类的样本更新每个GMM组件中的均值、协方差等参数）
-	//4.Construct Graph（计算t-weight(数据项）和n-weight（平滑项））
-	//7.Estimate Segmentation(调用maxFlow库进行分割)
-	//8.Save Result输入结果（将结果mask输出，将mask中前景区域对应的彩色图像保存和显示在交互界面中）
-	
+    returnExternalDataStructure(_mask);
+    ;
 }
 
+// Construct
+void GrabCut2D::setInternalDataStructure(Mat _img, Mat _mask, Rect _rect) {
+    image = _img;
+    mask = _mask;
+    rectTu = _rect;
+    k = vector<int>(image.rows*image.cols, -1);
+    imageAccessor = ImageAccessor(image);
+}
+void GrabCut2D::returnExternalDataStructure(cv::InputOutputArray _mask) {
+    mask.copyTo(_mask);
+}
 //Implementer
 
-void GrabCut2D::initializeMaskGmm(const Rect &rect, Mat &fgModel) {
+void GrabCut2D::initializeMaskGmm(Mat &fgModel, Mat &bgModel) {
     // InitializeMask
     cout<<"#GrabCut2D::initializeMaskGmm# Mask Zeroed At First"<<endl;
     mask = MASK_B;
-    mask(rect) = MASK_F;
+    mask(rectTu) = MASK_PF;
 
     // Initialize FG GMM
-    auto fgSamples = getFgSamples(rect);
-    Mat fgLabels(rect.height*rect.width, 1, CV_32SC1);
+    auto fgSamples = getFgSamples(rectTu);
+    Mat fgLabels(rectTu.height*rectTu.width, 1, CV_32SC1);
     gmmFG.estimateParas(fgSamples, noArray(), fgLabels);
-    gmmFG.testEstimateParas();
-    gmmFG.constructFGModelFromEM(fgModel);
+    gmmFG.constructModelFromEM(fgModel);
 
-    /*
+
     // Initialize BG GMM
-    auto bgSamples = getBgSamples(, rect);
-    Mat bgLabels(image.cols*image.rows - rect.height*rect.width, 1, CV_32SC1);
+    auto bgSamples = getBgSamples(rectTu);
+    Mat bgLabels(image.cols*image.rows - rectTu.height*rectTu.width, 1, CV_32SC1);
     gmmBG.estimateParas(bgSamples, noArray(), bgLabels);
-    gmmBG.testEstimateParas();
-     */
+    gmmBG.constructModelFromEM(bgModel);
+
+    //Initialize k
+    reassignPixelsInBGToComponents();
+
+    //test
+    testInitializeMaskGmm();
+    cout<<"#GrabCut2D::initializeMaskGmm# End"<<endl;
 }
 
-void GrabCut2D::addFgPixelsToFgGmmComponents() {
-    vector<Point2i> fgPixels;
-    auto& fgPixelsRef = fgPixels; cout<<"#GrabCut2D::addFgPixelsToFgGmmComponents# fgPixelsRef not sure"<<endl;
-    generateFGPixelsVector(fgPixelsRef);
-
-    for(auto pixel:fgPixelsRef) {
-        addFgPixelToFgGmmComponent(pixel);
+void GrabCut2D::reassignPixelsInBGToComponents() {
+    for (int row = 0; row < image.rows; ++row) {
+        for (int col = 0; col < image.cols; ++col) {
+            auto area = AreaMask(mask.at<MaskType>(row, col));
+            if(area == MASK_B) {
+                reAssignPixelToGmmComponent(point(row, col), MASK_B);
+            }
+        }
     }
-    testAssignGMMComponentsToFGPixels();
 }
 
-void GrabCut2D::addFgPixelToFgGmmComponent(Point2i pixel) {
-    //cout<<"#GrabCut2D::addFgPixelToFgGmmComponent# image depth? channel?"<<endl;
+void GrabCut2D::reAssignPixelsToGmmComponents() {
+    for (int i = 0; i < imageAccessor.nPixels(); ++i) {
+        auto cood = imageAccessor.coordOfPixel(i);
+        auto area = AreaMask(mask.at<MaskType>(cood));
+        reAssignPixelToGmmComponent(cood, area);
+    }
+}
+void GrabCut2D::reassignPixelsInTuToGmmComponents() {
+    cout<<"# GrabCut2D::reassignPixelsInTuToGmmComponents# Begin"<<endl;
+    auto tu = TuMaskMat();
+    for (int row = 0; row < tu.rows; ++row) {
+        for (int col = 0; col < tu.cols; ++col) {
+            auto area = AreaMask(tu.at<MaskType>(row, col));
+            auto coodInImage = point(row + rectTu.y, col + rectTu.x);
+            reAssignPixelToGmmComponent(coodInImage, area);
+        }
+    }
+    testReAssignPixelsInTuToGmmComponents();
+    cout<<"# GrabCut2D::reassignPixelsInTuToGmmComponents# End"<<endl;
+}
+
+int GrabCut2D::gmmComponentForPixel(Point2i pixel, AreaMask area) {
     auto intensity = imageAccessor.pixelValue_At(pixel);
+    auto gmm = area==MASK_F? gmmFG: gmmBG;
+
+    //auto v = area==MASK_F? pixelsInFgGaussComps: pixelsInBgGaussComps;
 
     auto Ds = map<int, double>();
-    for (int i = 0; i < gmmFG.nComps(); ++i) {
-        auto D = gmmFG.minusLogProbDensConstDeled_at_Comp_Sample(i, intensity);
+    for (int i = 0; i < gmm.nComps(); ++i) {
+        auto D = gmm.minusLogProbDensConstDeled_at_Comp_Sample(i, intensity);
+        Ds.insert(pair<int, double>(i, D));
+    }
+    auto iterMaxD = max_element(Ds.begin(), Ds.end());
+
+    return  (*iterMaxD).first;
+}
+
+void GrabCut2D::reAssignPixelToGmmComponent(Point2i pixel, AreaMask area) {
+    //cout<<"#GrabCut2D::addFgPixelToFgGmmComponent# image depth? channel?"<<endl;
+    auto intensity = imageAccessor.pixelValue_At(pixel);
+    GMM gmm;
+    if ((area==MASK_F) || (area==MASK_PF)) {
+        gmm = gmmFG;
+    }
+    else {
+        gmm = gmmBG;
+    }
+    //auto v = area==MASK_F? pixelsInFgGaussComps: pixelsInBgGaussComps;
+
+    auto Ds = map<int, double>();
+    for (int i = 0; i < gmm.nComps(); ++i) {
+        auto D = gmm.minusLogProbDensConstDeled_at_Comp_Sample(i, intensity);
         Ds.insert(pair<int, double>(i, D));
     }
     auto iterMaxD = max_element(Ds.begin(), Ds.end());
 
     if(iterMaxD!=Ds.end()) {
         auto component = (*iterMaxD).first;
-        pixelsInFgGaussComps[component].push_back(pixel);
+        k[imageAccessor.indexOfPixel(pixel)] = component;
+        //v[component].push_back(pixel);
+    }
+}
+
+void GrabCut2D::generatePixelsInAreaByGaussComps(vector<vector<Point2i>> &v, AreaMask area) {
+    assert(v.size() == 5);
+    for (int i = 0; i < k.size(); ++i) {
+        auto pixelArea = mask.at<MaskType>(imageAccessor.coordOfPixel(i));
+        auto pixelK = k[i];
+        if(pixelArea == area) {
+            v[pixelK].push_back(imageAccessor.coordOfPixel(i));
+        }
     }
 }
 
@@ -128,16 +184,16 @@ void GrabCut2D::test() {
     GrabCut(image, mask, rect, fgm, bgm, 100, GC_WITH_MASK);
 }
 
-Mat GrabCut2D::getBgSamples(const Mat &_img, const Rect &rect) {
+Mat GrabCut2D::getBgSamples(const Rect& rect) {
     auto rowColOfUpperLeft = MyUtility::rowColOfUpperLeftFromRect(rect);
     auto beginRow = rowColOfUpperLeft.first;
     auto beginCol = rowColOfUpperLeft.second;
     auto overRow = beginRow + rect.height;
     auto overCol = beginCol + rect.width;
-    auto bgUp = _img(Range(0, beginRow), Range::all()).clone();
-    auto bgBottom = _img(Range(overRow, _img.rows), Range::all()).clone();
-    auto bgLeft = _img(Range::all(), Range(0, beginCol)).clone();
-    auto bgRight = _img(Range::all(), Range(overCol, _img.cols)).clone();
+    auto bgUp = image(Range(0, beginRow), Range::all()).clone();
+    auto bgBottom = image(Range(overRow, image.rows), Range::all()).clone();
+    auto bgLeft = image(Range::all(), Range(0, beginCol)).clone();
+    auto bgRight = image(Range::all(), Range(overCol, image.cols)).clone();
     bgUp = bgUp.reshape(1,bgUp.rows*bgUp.cols);
     bgBottom = bgBottom.reshape(1,bgBottom.rows*bgBottom.cols);
     bgLeft = bgLeft.reshape(1,bgLeft.rows*bgLeft.cols);
@@ -154,33 +210,51 @@ Mat GrabCut2D::getFgSamples(const Rect &rect) {// Syn with Mask
     return fg;
 }
 
+// Data Factory
+void GrabCut2D::generateBGPixelsVector(vector<Point2i>& bgPixels) {
+    addPixelsInAnAreaToVector(bgPixels, MASK_B);
+    addPixelsInAnAreaToVector(bgPixels, MASK_PB);
+}
 void GrabCut2D::generateFGPixelsVector(vector<Point2i>& fgPixels) {
+    addPixelsInAnAreaToVector(fgPixels, MASK_F);
+    addPixelsInAnAreaToVector(fgPixels, MASK_PF);
+}
+void GrabCut2D::addPixelsInAnAreaToVector(vector<Point2i> &pixels, AreaMask area) {
     int n = 0;
     int fn = 0;
     for (int i = 0; i < mask.rows; ++i) {
         for (int j = 0; j < mask.cols; ++j) {
             n++;
             auto theMask = markOfEle(i, j);
-            if((theMask==MASK_F) || (theMask==MASK_PF)) {
-                fgPixels.push_back(point(i, j));
+            if(theMask == area) {
+                pixels.push_back(point(i, j));
                 fn++;
             }
         }
     }
     cout<<"#GrabCut2D::generateFGPixelsVector# "<<n<<" "<<fn<<endl;
 }
-
-void GrabCut2D::testAssignGMMComponentsToFGPixels() {
-    for(auto comp:pixelsInFgGaussComps) {
-        cout<<"#fg gauss comp# "<<comp.size()<<" "<<"pixels"<<endl;
-    }
+// Data Factory
+void GrabCut2D::addBgPixelToBgGmmComponent(Point2i pixel) {
+    reAssignPixelToGmmComponent(pixel, MASK_B);
+}
+void GrabCut2D::addFgPixelToFgGmmComponent(Point2i pixel) {
+    reAssignPixelToGmmComponent(pixel, MASK_F);
 }
 
-void GrabCut2D::learnGMMParams(Mat &model) {
-    cout<<"GrabCut2D::learnGMMParams"<<endl;
-    gmmFG.estimateParas(pixelsInFgGaussComps, image);
-    gmmFG.constructFGModel(model);
+void GrabCut2D::learnGMMParams() {
+    cout<<"#GrabCut2D::learnGMMParams# Begin"<<endl;
+    auto pixelsInFgByGaussComps = vector<vector<Point2i>>{5,vector<Point2i>()};
+    generatePixelsInAreaByGaussComps(pixelsInFgByGaussComps, MASK_F);
+    generatePixelsInAreaByGaussComps(pixelsInFgByGaussComps, MASK_PF);
+    gmmFG.estimateParas(pixelsInFgByGaussComps, image);
+    //gmmFG.constructFGModel(model);
     //5 comps, each has pi, mean, cov
+    auto pixelsInBgByGaussComps = vector<vector<Point2i>>{5,vector<Point2i>()};
+    generatePixelsInAreaByGaussComps(pixelsInFgByGaussComps, MASK_B);
+    generatePixelsInAreaByGaussComps(pixelsInFgByGaussComps, MASK_PB);
+    gmmBG.estimateParas(pixelsInFgByGaussComps, image);
+    cout<<"#GrabCut2D::learnGMMParams# End"<<endl;
 }
 
 GrabCut2D::~GrabCut2D(void)
@@ -188,22 +262,53 @@ GrabCut2D::~GrabCut2D(void)
 }
 
 void GrabCut2D::constructGraph() {
-    graph = ImageGraph(/*estimated # of nodes*/ 400, /*estimated # of edges*/ 3200); cout<<"#GrabCut2D::constructGraph()# !Implement estimated nodes and edges"<<endl;
-
+    K = computeK();
+    graph = new ImageGraph(/*estimated # of nodes*/ 2500, /*estimated # of edges*/ 20000); cout<<"#GrabCut2D::constructGraph()# !Implement estimated nodes and edges"<<endl;
     for (int i = 0; i < imageAccessor.nPixels(); ++i) {
-        graph.add_node();
-        auto comp = comp_of_pixel(i);
-        graph.add_tweights( i, edgeWeight_Pixel_Source(i, comp), edgeWeight_Pixel_Terminal(i, comp) );
+        graph->add_node();
+        graph->add_tweights( i, edgeWeight_Pixel_Source(i), edgeWeight_Pixel_Terminal(i) );
     }
 
     for (int i = 0; i < imageAccessor.nPixels(); ++i) {
-        auto neighbors = imageAccessor.neighbors_Of(i);
-        for(auto neighbor:neighbors) {
-            if (neighbor > i) {
-                graph.add_edge(i, neighbor, edgeWeight_p_neighborQ(i, neighbor), edgeWeight_p_neighborQ(neighbor, i));
+        auto ns = neighbors(imageAccessor.coordOfPixel(i), imageAccessor.rows(), imageAccessor.cols());
+        for(auto neighbor:ns) {
+            auto nIndex = imageAccessor.indexOfPixel(neighbor);
+            if (nIndex > i) {
+                auto edgeWeight = edgeWeight_p_neighborQ(i, nIndex);
+                graph->add_edge(i, nIndex, edgeWeight, edgeWeight);
             }
         }
     }
+    /*
+    int nodeID = 0;
+    for (int i = 0; i < rectTu.height; ++i) {
+        for (int j = 0; j < rectTu.width; ++j) {
+            auto cood = point(i + rectTu.y, j + rectTu.x);
+            auto index = imageAccessor.indexOfPixel(cood);
+            graph->add_node();
+            graph->add_tweights(nodeID++, edgeWeight_Pixel_Source(index), edgeWeight_Pixel_Terminal(index));
+        }
+    }
+
+    for (int i = 0; i < rectTu.height; ++i) {
+        for (int j = 0; j < rectTu.width; ++j) {
+            auto pix = point(i, j);
+            auto ns = neighbors(pix, rectTu.height, rectTu.width);
+            for(auto neighbor:ns) {
+                auto index = indexOfPixel(pix, rectTu.height, rectTu.width);
+                auto neighborIndex = indexOfPixel(neighbor, rectTu.height, rectTu.width);
+                if (neighborIndex > index) {
+                    auto pixInImage = Point2i(pix.x + rectTu.x, pix.y + rectTu.y);
+                    auto neighborInImage = Point2i(neighbor.x + rectTu.x, neighbor.y + rectTu.y);
+                    auto pixInImageIndex = imageAccessor.indexOfPixel(pixInImage);
+                    auto neighborInImageIndex = imageAccessor.indexOfPixel(neighborInImage);
+                    graph->add_edge(index, neighborIndex, edgeWeight_p_neighborQ(pixInImageIndex, neighborInImageIndex), edgeWeight_p_neighborQ(neighborInImageIndex, pixInImageIndex));
+                }
+            }
+        }
+    }
+     */
+    cout<<"#GrabCut2D::constructGraph# End"<<endl;
 }
 
 int GrabCut2D::nPixels() {
@@ -217,46 +322,46 @@ AreaMask GrabCut2D::markOfPixel(Point2i pixel) {
     return theMask;
 }
 
-double GrabCut2D::edgeWeight_Pixel_Source(int pixelIndex, int k_GMMComp) {
+double GrabCut2D::edgeWeight_Pixel_Source(int pixelIndex) {
     auto area = markOfPixel(imageAccessor.coordOfPixel(pixelIndex));
 
     double weight;
     switch(area) {
         case MASK_B: weight = 0; break;
-        case MASK_F: weight = K(); break;
+        case MASK_F: weight = K; break;
         default: {
             auto cood = imageAccessor.coordOfPixel(pixelIndex);
-            weight = lambda()*R(cood, MASK_B, k_GMMComp);
+            weight = lambda()* R(cood, MASK_B);
         }
     }
 
     return weight;
 }
 
-double GrabCut2D::edgeWeight_Pixel_Terminal(int pixelIndex, int k_GMMComp) {
+double GrabCut2D::edgeWeight_Pixel_Terminal(int pixelIndex) {
     auto area = markOfPixel(imageAccessor.coordOfPixel(pixelIndex));
 
     double weight;
     switch(area) {
-        case MASK_B: weight = K(); break;
+        case MASK_B: weight = K; break;
         case MASK_F: weight = 0; break;
         default: {
             auto cood = imageAccessor.coordOfPixel(pixelIndex);
-            weight = lambda()*R(cood, MASK_F, k_GMMComp);
+            weight = lambda()* R(cood, MASK_F);
         }
     }
 
     return weight;
 }
 
-double GrabCut2D::K() {
+double GrabCut2D::computeK() {
     double maxZigma = DBL_MIN;
 
     for (int i = 0; i < imageAccessor.nPixels(); ++i) {
         double zigma = 0;
 
         auto cood_i = imageAccessor.coordOfPixel(i);
-        auto neighbors = imageAccessor.neighbors_Of(i);
+        auto neighbors = imageAccessor.neighborsInRect_Of(i);
         for(auto n:neighbors) {
             auto cood_n = imageAccessor.coordOfPixel(n);
             zigma += B(cood_i, cood_n);
@@ -270,15 +375,14 @@ double GrabCut2D::K() {
     return maxZigma + 1;
 }
 
-double GrabCut2D::R(Point2i pixel, AreaMask mask, int k_GMMComp) {
-    auto alpha = markOfPixel(pixel);
+double GrabCut2D::R(Point2i pixel, AreaMask mask) {
     auto color = imageAccessor.pixelValue_At(pixel);
-    return D(alpha, k_GMMComp, color);
+    int k_gmmComp = gmmComponentForPixel(pixel, mask);
+    return D(mask, k_gmmComp, color);
 }
 
 double GrabCut2D::lambda() {
-    cout<<"#GrabCut2D::lambda# !Not Implement"<<endl;
-    return 0;
+    return 50;
 }
 
 vector<int> GrabCut2D::neighborsOfPixel(int pixelIndex) {
@@ -300,22 +404,22 @@ double GrabCut2D::B(Point2i p, Point2i neighborQ) {
 }
 
 double GrabCut2D::Beta() {
-    cout<<"#GrabCut2D::Beta# !Not Implement"<<endl;
-    return 0;
+    cout<<"#GrabCut2D::Beta# !Not Fully Implement"<<endl;
+    return 0.1;
 }
 
 double GrabCut2D::D(AreaMask alpha, int k_GMMComp, Vec3b z_color) {
     double d;
     switch(alpha){
-        case MASK_F:  d = gmmFG.minusLogProbDensConstDeled_at_Comp_Sample(k_GMMComp, Matx31d(z_color));
+        case MASK_F:  d = gmmFG.minusLogProbDensConstDeled_at_Comp_Sample(k_GMMComp, Matx31d(z_color));break;
+        case MASK_B: d = gmmBG.minusLogProbDensConstDeled_at_Comp_Sample(k_GMMComp, Matx31d(z_color));break;
         default: assert(false);
     }
     return d;
 }
 
 int GrabCut2D::k_GMMCompOfPixel(int i) {
-    cout<<"#GrabCut2D::k_GMMCompOfPixel# !Not Implement"<<endl;
-    return 0;
+    return k[i];
 }
 
 AreaMask GrabCut2D::markOfEle(int row, int col) {
@@ -323,35 +427,80 @@ AreaMask GrabCut2D::markOfEle(int row, int col) {
 }
 
 int GrabCut2D::comp_of_pixel(int pixelIndex) {
-    int k_comp = 0;
-    for(auto comp:pixelsInFgGaussComps) {
-        for(auto pixel: comp) {
-            auto index = imageAccessor.indexOfPixel(pixel);
-            if(index == pixelIndex) {
-                return k_comp;
-            }
-        }
-        k_comp++;
-    }
-    assert(false);
-    return -1;
+    return k[pixelIndex];
 }
 
 void GrabCut2D::minCut() {
+    cout<<"#GrabCut2D::minCut# Begin"<<endl;
     constructGraph();
-    graph.maxflow();
+    graph->maxflow();
     updateMask();
+    testMinCut();
+    cout<<"#GrabCut2D::minCut# End"<<endl;
 }
 
 void GrabCut2D::updateMask() {
-    for (int i = 0; i < imageAccessor.nPixels(); ++i) {
-        if(graph.what_segment(i) == ImageGraph::SOURCE) {
-            mask.at<MaskType>(imageAccessor.coordOfPixel(i)) = MASK_F;//!Change to Mask Accessor!
-        }
-        else {
-            mask.at<MaskType>(imageAccessor.coordOfPixel(i)) = MASK_B;//!Change to Mask Accessor!
+    auto m = TuMaskMat();
+    for (int i = 0; i < m.rows; ++i) {
+        for (int j = 0; j < m.cols; ++j) {
+            auto index = indexofPixel(point(i, j), Point2i(rectTu.x, rectTu.y), imageAccessor.rows(), imageAccessor.cols());
+            if(graph->what_segment(index) == ImageGraph::SOURCE) {
+                mask.at<MaskType>(imageAccessor.coordOfPixel(index)) = MASK_PF;//!Change to Mask Accessor!
+            }
+            else {
+                mask.at<MaskType>(imageAccessor.coordOfPixel(index)) = MASK_PB;//!Change to Mask Accessor!
+            }
         }
     }
 }
 
+void GrabCut2D::addBgPixelsToFgGmmComponents() {
+    vector<Point2i> bgPixels;
+    auto& bgPixelsRef = bgPixels; cout<<"#GrabCut2D::addBgPixelsToBgGmmComponents# bgPixelsRef not sure"<<endl;
+    generateBGPixelsVector(bgPixelsRef);
+
+    for(auto pixel:bgPixelsRef) {
+        addBgPixelToBgGmmComponent(pixel);
+    }
+}
+void GrabCut2D::addFgPixelsToFgGmmComponents() {
+    vector<Point2i> fgPixels;
+    auto& fgPixelsRef = fgPixels; cout<<"#GrabCut2D::addFgPixelsToFgGmmComponents# fgPixelsRef not sure"<<endl;
+    generateFGPixelsVector(fgPixelsRef);
+
+    for(auto pixel:fgPixelsRef) {
+        addFgPixelToFgGmmComponent(pixel);
+    }
+}
+// test
+void GrabCut2D::testInitializeMaskGmm() {
+    cout<<"#GrabCut2D::testInitializeMaskGmm()#"<<endl;
+    cout<<"FG"<<endl;
+    gmmFG.testEstimatedParas();
+    cout<<"BG"<<endl;
+    gmmBG.testEstimatedParas();
+    testReAssignPixelsInBGToComponents();
+    cout<<"#GrabCut2D::testInitializeMaskGmm()# End"<<endl;
+}
+void GrabCut2D::testReAssignPixelsInBGToComponents() {
+    cout<<"#GrabCut2D::testReAssignPixelsInBGToComponents()#"<<endl;
+    MyUtility::printVector(k);
+    cout<<"#GrabCut2D::testReAssignPixelsInBGToComponents()# End"<<endl;
+}
+
+void GrabCut2D::testReAssignPixelsInTuToGmmComponents() {
+    cout<<"#GrabCut2D::testReassignPixelsInTuToGmmComponents()#"<<endl;
+    MyUtility::printVector(k);
+    cout<<"#GrabCut2D::testReassignPixelsInTuToGmmComponents()# End"<<endl;
+}
+
+void GrabCut2D::testMinCut() {
+    printMat(mask);
+    //imwrite("/Users/zhouweiran/Desktop/mask.png", maskPic);
+}
+
+//
+int GrabCut2D::nPixelsInRect() {
+    return rectTu.width * rectTu.height;
+}
 
